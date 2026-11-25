@@ -572,19 +572,13 @@ tbody > tr.st-tr > td { padding: 0; border-bottom: none; white-space: normal; he
 .st-error .st-ico { color: var(--bad); }
 .list-card:not([data-state="filled"]) .tf .pager { display: none; }
 
-/* ===== 设置中心右侧留白：流星雨（纯装饰；prefers-reduced-motion 下退化为静态星空） ===== */
-.sets-wrap { display: grid; grid-template-columns: minmax(0, 720px) minmax(320px, 1fr); gap: 24px; align-items: start; }
-.meteor-pane { position: relative; min-height: min(640px, calc(100vh - 210px)); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden;
-  background:
-    radial-gradient(120% 85% at 72% 8%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 62%),
-    radial-gradient(90% 70% at 18% 92%, color-mix(in srgb, var(--transit) 7%, transparent), transparent 66%),
-    var(--surface); }
-.meteor-pane::after { content: ""; position: absolute; inset: 0; pointer-events: none; border-radius: inherit;
-  background: radial-gradient(125% 105% at 50% 45%, transparent 52%, color-mix(in srgb, var(--ink) 6%, transparent)); }
-.meteor-pane canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-.meteor-pane .mp-tag { position: absolute; right: 14px; top: 12px; font: 500 10.5px var(--mono); letter-spacing: .14em; color: var(--ink-3); opacity: .55; }
-.meteor-pane .mp-foot { position: absolute; left: 16px; bottom: 14px; font: 500 10.5px var(--mono); letter-spacing: .16em; color: var(--ink-3); opacity: .6; }
-@media (max-width: 1180px) { .sets-wrap { grid-template-columns: minmax(0, 720px); } .meteor-pane { display: none; } }
+/* ===== 流星雨：整页背景层（不是卡片，没有边框/底色，直接融进页面背景） ===== */
+.sets-wrap { display: grid; grid-template-columns: minmax(0, 760px); gap: 0; align-items: start; }
+.meteor-bg { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; display: none; }
+.meteor-bg.on { display: block; }
+.meteor-bg canvas { display: block; width: 100%; height: 100%; }
+/* 页面内容整体压在背景层之上（侧栏/卡片各自有底色，流星只在它们的空隙里） */
+#app { position: relative; z-index: 1; }
 </style>
 </head>
 <body>
@@ -653,6 +647,8 @@ tbody > tr.st-tr > td { padding: 0; border-bottom: none; white-space: normal; he
     <p class="note" style="margin:12px 0 0;font-size:11.5px;line-height:1.7"><svg class="ic"><use href="#i-shield"/></svg><span>后端只有 <span class="mono">/auth/code</span> · <span class="mono">login</span> · <span class="mono">logout</span> · <span class="mono">me</span>，没有 register / join / invite 端点；所以本页不提供自助入企。</span></p>
   </div></div>
 </div>
+<!-- 流星雨背景层（整页，纯装饰）：只在设置中心挂 .on；无边框、无底色，融进页面背景 -->
+<div class="meteor-bg" id="meteorBg" aria-hidden="true"><canvas id="meteor"></canvas></div>
 <!-- 打印客户联容器 -->
 <div class="print-sheet" id="printSheet" aria-hidden="true"></div>
 <div class="app" id="app">
@@ -1192,14 +1188,27 @@ function blockStates() {
   <div class="st-block st-error"><div class="st-center st-wrap st-error"><div class="st-ico">${ic('warn')}</div><div class="st-title">数据加载失败</div><p class="st-desc">网络波动或服务暂不可用，已保留你的筛选条件。</p><div class="st-actions"><button class="btn pri" data-act="retry">${ic('refresh')}重试</button></div></div></div>`;
 }
 /* 只改属性：四态切换不重建 DOM */
-/* ===== 设置中心右侧：流星雨 =====
-   纯装饰层：暗色/亮色各自配色，跟随强调色；prefers-reduced-motion 下只画静态星空、不落流星。
-   只在 #meteor 画布存在时跑 rAF，离开设置页立即停（syncMeteor 负责开关）。 */
-const MV = { raf: 0, cv: null, ctx: null, w: 0, h: 0, stars: [], rocks: [], last: 0, next: 0, ro: null };
+/* ===== 流星雨：整页背景层（不是卡片） =====
+   铺在 #app 之下、没有边框和底色，星点与流星只在卡片/侧栏的空隙里出现。
+
+   三种节奏，避免「一条一条乱飘」的单调感：
+   1. 平时零星：每 150–650ms 一颗，俯角 12°–78° 随机、左右两侧都会来，
+      速度 / 长度 / 粗细 / 颜色都抖，不出现两条一样的轨迹；
+   2. 小流星雨（每 18–40s）：9–18 颗，0.9s 内随机落下，方向各自不同；
+   3. **大流星雨（每 75–135s）：有编排的「流星雨幕」** —— 整阵同一方向、同一速度，
+      沿顶边等距排开、按固定节拍依次进场（30–70ms 一颗），拖尾等长、粗细一致，
+      每 3–4 颗里有一颗用强调色；一次来 2 阵（第二阵错开半拍），像真的流星雨那样成排划过。
+
+   prefers-reduced-motion 下只留静态星空；切走页面立即停；标签页在后台不绘制。 */
+const MV = { raf: 0, cv: null, ctx: null, w: 0, h: 0, stars: [], rocks: [], last: 0, next: 0, ro: null, queue: [], burstAt: 0, waveAt: 0 };
 const mvReduced = () => { try { return matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { return false; } };
 const mvPalette = () => {
   const dark = document.documentElement.dataset.theme === 'dark';
-  return { head: P.accent || '#dc4a26', tail: dark ? 'rgba(255,255,255,.78)' : 'rgba(40,33,24,.72)', star: dark ? 'rgba(255,255,255,.85)' : 'rgba(40,33,24,.72)' };
+  return {
+    head: P.accent || '#dc4a26',
+    tail: dark ? 'rgba(255,255,255,.82)' : 'rgba(38,31,22,.78)',
+    star: dark ? 'rgba(255,255,255,.86)' : 'rgba(38,31,22,.75)'
+  };
 };
 function mvResize() {
   const cv = MV.cv; if (!cv) return;
@@ -1207,31 +1216,85 @@ function mvResize() {
   MV.w = Math.max(1, Math.round(r.width)); MV.h = Math.max(1, Math.round(r.height));
   cv.width = Math.round(MV.w * dpr); cv.height = Math.round(MV.h * dpr);
   MV.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  const n = Math.round(MV.w * MV.h / 4600);
-  MV.stars = Array.from({ length: Math.max(40, Math.min(150, n)) }, () => ({
+  const n = Math.round(MV.w * MV.h / 7000);
+  MV.stars = Array.from({ length: Math.max(60, Math.min(220, n)) }, () => ({
     x: Math.random() * MV.w, y: Math.random() * MV.h,
-    r: 0.4 + Math.random() * 1.15, a: 0.22 + Math.random() * 0.62,
-    s: 0.3 + Math.random() * 0.9, p: Math.random() * 6.283
+    r: 0.4 + Math.random() * 1.2, a: 0.2 + Math.random() * 0.66,
+    s: 0.3 + Math.random() * 0.95, p: Math.random() * 6.283
   }));
 }
-function mvSpawn() {
-  const fromLeft = Math.random() > 0.42;
-  const speed = 330 + Math.random() * 520;
-  const ang = (fromLeft ? 28 : 152) * Math.PI / 180;
+/* 一颗流星：支持传入编排好的参数（大流星雨用），否则全随机 */
+function mvSpawn(opt) {
+  const o = opt || {};
+  const fromLeft = o.fromLeft != null ? o.fromLeft : Math.random() < 0.48;
+  const tilt = o.tilt != null ? o.tilt : 12 + Math.random() * 66;      // 俯角 12°–78°
+  const ang = fromLeft ? tilt * Math.PI / 180 : Math.PI - tilt * Math.PI / 180;
+  const speed = o.speed != null ? o.speed : 300 + Math.random() * 640;
+  const high = Math.random() < 0.8;
   MV.rocks.push({
-    x: fromLeft ? -30 - Math.random() * 120 : MV.w + 30 + Math.random() * 120,
-    y: -20 - Math.random() * 140,
-    vx: Math.cos(ang) * speed, vy: Math.sin(ang) * speed * 0.62,
-    len: 120 + Math.random() * 200, life: 0, max: 1.4 + Math.random() * 1.2,
-    w: Math.random() < 0.26 ? 2.2 : 1.4, accent: Math.random() < 0.36
+    x: o.x != null ? o.x : (fromLeft ? -(60 + Math.random() * 220) : MV.w + 60 + Math.random() * 220),
+    y: o.y != null ? o.y : (high ? -40 - Math.random() * 160 : Math.random() * MV.h * 0.42),
+    vx: Math.cos(ang) * speed,
+    vy: Math.sin(ang) * speed * (o.speed != null ? 0.92 : 0.55 + Math.random() * 0.5),
+    len: o.len != null ? o.len : 80 + Math.random() * 260,
+    life: 0,
+    max: o.max != null ? o.max : 1.1 + Math.random() * 1.6,
+    w: o.w != null ? o.w : 1 + Math.random() * 1.7,
+    seg: o.seg != null ? o.seg : 7 + Math.round(Math.random() * 4),
+    accent: o.accent != null ? o.accent : Math.random() < 0.4,
+    glow: o.glow != null ? o.glow : Math.random() < 0.3
   });
-  if (MV.rocks.length > 12) MV.rocks.shift();
+  if (MV.rocks.length > 90) MV.rocks.shift();
+}
+/* 小流星雨：n 颗在 spread 毫秒内随机落下 */
+function mvBurst(n, spread) {
+  const t0 = MV.last || 0;
+  for (let k = 0; k < n; k++) MV.queue.push({ at: t0 + Math.random() * spread, opt: null });
+}
+/* 大流星雨：一「幕」编排好的流星 —— 同方向、同速度、等距排开、固定节拍 */
+function mvRainCurtain(delayMs, fromLeft, tiltDeg, count, speed, gapMs, phase) {
+  const t0 = MV.last || 0;
+  const len = 200 + Math.random() * 90;
+  const w = 1.15 + Math.random() * 0.45;
+  const accentEvery = 3 + Math.round(Math.random() * 1);
+  // 沿着整条顶边等距排开（不是从一个角斜着挤进来），配固定节拍 = 一「幕」扫过整页
+  for (let k = 0; k < count; k++) {
+    const f = (k + phase) / count;
+    const fromEdge = fromLeft ? (-0.08 + f * 1.16) * MV.w : (1.08 - f * 1.16) * MV.w;
+    MV.queue.push({
+      at: t0 + delayMs + k * gapMs,
+      opt: {
+        fromLeft, tilt: tiltDeg, speed,
+        x: fromEdge, y: -80,
+        len, w, seg: 12, max: 1.5 + Math.random() * 0.4,
+        accent: k % accentEvery === 0, glow: k % accentEvery === 0
+      }
+    });
+  }
+}
+/* 一次大流星雨 = 两阵帘幕，第二阵错开半拍、方向相同、间距略变 */
+function mvShower() {
+  const fromLeft = Math.random() < 0.5;
+  const tilt = 24 + Math.random() * 26;                 // 24°–50°，整阵统一
+  const count = 12 + Math.round(Math.random() * 8);
+  const speed = 420 + Math.random() * 180;
+  const gap = 38 + Math.random() * 30;                  // 固定节拍
+  mvRainCurtain(120, fromLeft, tilt, count, speed, gap, 0);
+  mvRainCurtain(120 + count * gap * 0.5, fromLeft, tilt, Math.max(6, Math.round(count * 0.7)), speed, gap * 0.85, 0.5);
+}
+function mvDrain(ts) {
+  if (!MV.queue.length) return;
+  const due = MV.queue.filter(q => q.at <= ts);
+  if (!due.length) return;
+  MV.queue = MV.queue.filter(q => q.at > ts);
+  for (let k = 0; k < due.length; k++) mvSpawn(due[k].opt);
 }
 function mvFrame(ts) {
   const ctx = MV.ctx;
   if (!ctx) return;
-  // 四态预览切到空/加载/错误时画布被隐藏，或切到别的页：不再绘制（省电），但仍挂着 rAF 以便恢复
-  if (!MV.cv.isConnected || MV.cv.offsetParent === null || document.hidden) { MV.raf = requestAnimationFrame(mvFrame); return; }
+  // 背景层没挂 .on（不是设置页）或标签页在后台：不绘制，但 rAF 挂着以便恢复
+  // 注意：position:fixed 的元素 offsetParent 恒为 null，不能用它判断可见，改看实际尺寸
+  if (!MV.cv.isConnected || MV.cv.getBoundingClientRect().width === 0 || document.hidden) { MV.raf = requestAnimationFrame(mvFrame); return; }
   const dt = Math.min(0.05, (ts - (MV.last || ts)) / 1000); MV.last = ts;
   ctx.clearRect(0, 0, MV.w, MV.h);
   const c = mvPalette(), reduce = mvReduced();
@@ -1240,17 +1303,25 @@ function mvFrame(ts) {
     ctx.globalAlpha = s.a * tw; ctx.fillStyle = c.star;
     ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, 6.2832); ctx.fill();
   }
-  if (!reduce) {
-    if (ts > MV.next) { mvSpawn(); MV.next = ts + 300 + Math.random() * 850; }
+  if (reduce) { MV.rocks = []; MV.queue = []; }
+  else {
+    if (MV.next === 0) MV.next = ts + 400;
+    if (MV.burstAt === 0) MV.burstAt = ts + 6000 + Math.random() * 8000;
+    if (MV.waveAt === 0) MV.waveAt = ts + 24000 + Math.random() * 20000;
+    if (ts > MV.next) { mvSpawn(); MV.next = ts + 150 + Math.random() * 520; }
+    if (ts > MV.burstAt) { mvBurst(9 + Math.round(Math.random() * 9), 900); MV.burstAt = ts + 18000 + Math.random() * 22000; }
+    if (ts > MV.waveAt) { mvShower(); MV.waveAt = ts + 75000 + Math.random() * 60000; }
+    mvDrain(ts);
     for (const m of MV.rocks) {
       m.life += dt; m.x += m.vx * dt; m.y += m.vy * dt;
       const k = Math.max(0, 1 - m.life / m.max), hyp = Math.hypot(m.vx, m.vy) || 1;
       const dx = m.vx / hyp, dy = m.vy / hyp, tail = m.len * (0.55 + 0.45 * k);
-      for (let i = 0; i < 9; i++) {
-        const t0 = i / 9, t1 = (i + 1) / 9, fade = (1 - t0) * (1 - t0);
-        ctx.globalAlpha = (m.accent ? 0.85 : 0.6) * k * fade;
+      const seg = m.seg || 9, base = m.accent ? 0.88 : 0.62;
+      for (let i = 0; i < seg; i++) {
+        const t0 = i / seg, t1 = (i + 1) / seg, fade = (1 - t0) * (1 - t0);
+        ctx.globalAlpha = base * k * fade;
         ctx.strokeStyle = m.accent ? c.head : c.tail;
-        ctx.lineWidth = m.w * (0.45 + (1 - t0) * 0.7);
+        ctx.lineWidth = m.w * (0.4 + (1 - t0) * 0.75);
         ctx.lineCap = 'round';
         ctx.beginPath();
         ctx.moveTo(m.x - dx * tail * t0, m.y - dy * tail * t0);
@@ -1259,16 +1330,19 @@ function mvFrame(ts) {
       }
       ctx.globalAlpha = 0.95 * k; ctx.fillStyle = m.accent ? c.head : c.tail;
       ctx.beginPath(); ctx.arc(m.x, m.y, m.w * 1.05, 0, 6.2832); ctx.fill();
-      ctx.globalAlpha = 0.28 * k;
-      ctx.beginPath(); ctx.arc(m.x, m.y, m.w * 3.4, 0, 6.2832); ctx.fill();
+      if (m.glow) {
+        ctx.globalAlpha = 0.22 * k;
+        ctx.beginPath(); ctx.arc(m.x, m.y, m.w * 3.8, 0, 6.2832); ctx.fill();
+      }
     }
-    MV.rocks = MV.rocks.filter(m => m.life < m.max && m.x > -420 && m.x < MV.w + 420 && m.y < MV.h + 420);
+    MV.rocks = MV.rocks.filter(m => m.life < m.max && m.x > -620 && m.x < MV.w + 620 && m.y < MV.h + 620);
   }
   MV.raf = requestAnimationFrame(mvFrame);
 }
 function meteorStop() {
   if (MV.raf) cancelAnimationFrame(MV.raf);
-  MV.raf = 0; MV.cv = null; MV.ctx = null; MV.rocks = [];
+  MV.raf = 0; MV.cv = null; MV.ctx = null; MV.rocks = []; MV.queue = [];
+  MV.burstAt = 0; MV.waveAt = 0; MV.next = 0;
   if (MV.ro) { MV.ro.disconnect(); MV.ro = null; }
 }
 function meteorStart() {
@@ -1276,13 +1350,17 @@ function meteorStart() {
   if (!cv || !cv.getContext) return;
   if (MV.cv === cv && MV.raf) return;
   meteorStop();
-  MV.cv = cv; MV.ctx = cv.getContext('2d'); MV.last = 0; MV.next = 0; MV.rocks = [];
+  MV.cv = cv; MV.ctx = cv.getContext('2d'); MV.last = 0;
   mvResize();
   if (window.ResizeObserver) { MV.ro = new ResizeObserver(() => mvResize()); MV.ro.observe(cv.parentElement || cv); }
   MV.raf = requestAnimationFrame(mvFrame);
 }
 function syncMeteor() {
-  if (S.page === 'settings' && $('#meteor')) meteorStart(); else meteorStop();
+  const bg = $('#meteorBg');
+  if (!bg) return;
+  const on = S.page === 'settings';
+  bg.classList.toggle('on', on);
+  if (on) meteorStart(); else meteorStop();
 }
 
 function applyState() {
@@ -1659,11 +1737,6 @@ PG.settings = {
       ${row('恢复默认设置', '清除本机保存的外观偏好', `<button class="btn${S.arm === 'reset' ? ' armed' : ' danger'}" data-act="reset">${S.arm === 'reset' ? '再点一次确认' : '恢复默认'}</button>`)}
       ${row('重置演示数据', '撤销本次会话里对单据、库存的全部操作', '<button class="btn" data-act="reload">重新载入</button>')}
        ${row('退出登录（演示）', '回到手机号 + 验证码登录页', '<button class="btn" data-act="logout">退出登录</button>')}
-      </div></div>
-      <div class="meteor-pane" id="meteorPane" aria-hidden="true">
-        <canvas id="meteor"></canvas>
-        <span class="mp-tag">QINGDAN · v3.0</span>
-        <span class="mp-foot">A METEOR SHOWER OVER YOUR LEDGER</span>
       </div></div>`;
   }
 };
