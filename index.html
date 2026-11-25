@@ -1229,10 +1229,10 @@ function blockStates() {
    1. 平时零星：每 150–650ms 一颗，俯角 12°–78° 随机、左右两侧都会来，
       速度 / 长度 / 粗细 / 颜色都抖，不出现两条一样的轨迹；
    2. 小流星雨（每 18–40s）：6–9 颗，约 5s 内陆续落下，都从同一个辐射点飞出；
-   3. **大流星雨（每 75–135s）：12–20 颗，约 7s 内按泊松间隔落下** —— 全部从同一个
-      辐射点（radiant）向外辐射，因此越靠近辐射点拖尾越短、越远越长（透视），
+   3. **大流星雨（每 75–135s）：12–20 颗，约 7s 内落下** —— 两种落法各占一半：
+      · 一半是「同方向斜落的小分队」（3–5 颗一组、同一斜角、起点错开、有前有后）；
+      · 一半走辐点模型（从天空中同一点向外散开，近处拖尾短、远处长，泊松间隔）。
       亮度按「少数很亮、多数偏暗」分布，个别亮流星带余辉。
-      真实流星雨就是一小时 100 多颗、零星落下的，不是排成一条线一起扫过去。
 
    prefers-reduced-motion 下只留静态星空；切走页面立即停；标签页在后台不绘制。 */
 const MV = { raf: 0, cv: null, ctx: null, w: 0, h: 0, stars: [], rocks: [], last: 0, next: 0, ro: null, queue: [], burstAt: 0, waveAt: 0, radiant: { x: 0, y: 0 } };
@@ -1319,9 +1319,47 @@ function mvShowerRun(n, durMs) {
     MV.queue.push({ at: t0 + t, opt: { radiant: true } });
   }
 }
-/* 一次大流星雨：12–20 颗 / 约 7 秒 */
+/* 一次大流星雨：12–20 颗 / 约 7 秒。
+   约一半是「同方向斜落的小分队」：3–5 颗一组、同一个斜角，但起点各自错开（不在同一起跑线），
+   前后、深浅、快慢都有微差，看起来是一伙一起斜着掉下来；
+   另一半走辐射点模型（从天空中同一点散开）。 */
 function mvShower() {
-  mvShowerRun(12 + Math.round(Math.random() * 8), 7000);
+  const total = 12 + Math.round(Math.random() * 8);
+  const t0 = MV.last || 0;
+  let used = 0;
+
+  // 1) 同方向小分队（占比目标 ~50%）
+  while (total - used >= 3 && used < Math.round(total * 0.5)) {
+    const size = Math.min(total - used, 3 + Math.round(Math.random() * 2)); // 3–5 颗
+    const fromLeft = Math.random() < 0.5;
+    const tilt = 26 + Math.random() * 32;          // 斜着：26°–58°，整组一致
+    const speed = 380 + Math.random() * 170;
+    const baseT = Math.random() * 3200;
+    for (let k = 0; k < size; k++) {
+      MV.queue.push({
+        at: t0 + baseT + k * (70 + Math.random() * 150),    // 彼此错开一点点，不齐头并进
+        opt: {
+          group: true, tilt,
+          speed: speed * (0.94 + Math.random() * 0.18),     // 队内快慢微差（保持队形）
+          fromLeft,
+          // 不同起跑线：起点沿进场侧大幅错开，且纵深各自随机
+          x: fromLeft ? -(140 + Math.random() * 320) : MV.w + 140 + Math.random() * 320,
+          y: -(60 + Math.random() * 260),
+          len: 140 + Math.random() * 130,
+          max: 2.2 + Math.random() * 1.1,
+          w: Math.random() < 0.2 ? 2 : 1.05 + Math.random() * 0.5,
+          seg: 10,
+          accent: Math.random() < 0.32,
+          glow: Math.random() < 0.16
+        }
+      });
+    }
+    used += size;
+  }
+
+  // 2) 剩下的一半：辐射点模型（泊松间隔）
+  const rest = total - used;
+  if (rest > 0) mvShowerRun(rest, 7000);
 }
 function mvDrain(ts) {
   if (!MV.queue.length) return;
