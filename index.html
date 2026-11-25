@@ -579,6 +579,35 @@ tbody > tr.st-tr > td { padding: 0; border-bottom: none; white-space: normal; he
 .meteor-bg canvas { display: block; width: 100%; height: 100%; }
 /* 页面内容整体压在背景层之上（侧栏/卡片各自有底色，流星只在它们的空隙里） */
 #app { position: relative; z-index: 1; }
+
+/* ===== 只看星空：右上角棱形按钮（描边星星） ===== */
+.sky-btn { position: fixed; right: 22px; top: 76px; z-index: 6; width: 29px; height: 29px; display: none; place-items: center;
+  background: none; border: 0; padding: 0; cursor: pointer; opacity: .38;
+  transition: opacity .25s ease; -webkit-tap-highlight-color: transparent; }
+.sky-btn.show { display: grid; }
+.sky-btn::before { content: ""; position: absolute; inset: 0; border-radius: 5px; transform: rotate(45deg);
+  background: rgba(18, 22, 20, .26); border: 1px solid rgba(255, 255, 255, .2);
+  backdrop-filter: blur(4px); transition: border-color .22s, background .22s, box-shadow .22s; }
+.sky-btn:hover { opacity: 1; }
+.sky-btn:hover::before { border-color: rgba(255, 255, 255, .58); box-shadow: 0 0 0 2px rgba(255, 255, 255, .08); }
+.sky-btn svg { position: relative; width: 13px; height: 13px; transition: transform .4s cubic-bezier(.32, .72, 0, 1), filter .3s; }
+.sky-btn svg path { fill: none; stroke: rgba(255, 255, 255, .92); stroke-width: 1.35; stroke-linejoin: round; stroke-linecap: round; }
+.sky-btn:hover svg { transform: rotate(90deg); }
+.sky-btn.on { opacity: .6; }
+.sky-btn.on svg { filter: drop-shadow(0 0 4px rgba(255, 255, 255, .7)); }
+.sky-btn.is-firing svg { animation: sky-fire .64s cubic-bezier(.32, .72, 0, 1); }
+@keyframes sky-fire {
+  0%   { transform: rotate(90deg) scale(1);    filter: none; }
+  32%  { transform: rotate(90deg) scale(1.5);  filter: drop-shadow(0 0 8px #fff) brightness(2); }
+  100% { transform: rotate(90deg) scale(1);    filter: drop-shadow(0 0 4px rgba(255, 255, 255, .7)); }
+}
+/* 只留星空：设置面板淡出，按钮与提示留下 */
+body.sky-mode .ph, body.sky-mode #dyn { opacity: 0; pointer-events: none; transition: opacity .55s ease; }
+.sky-hint { position: fixed; left: 50%; bottom: 34px; z-index: 6; transform: translate(-50%, 8px);
+  font: 500 12px var(--mono); letter-spacing: .18em; color: var(--ink-3); opacity: 0; pointer-events: none;
+  transition: opacity .5s ease, transform .5s ease; }
+body.sky-mode .sky-hint { opacity: .62; transform: translate(-50%, 0); }
+@media (prefers-reduced-motion: reduce) { .sky-btn svg, .sky-btn.is-firing svg { animation: none; transition: none; } }
 </style>
 </head>
 <body>
@@ -649,6 +678,11 @@ tbody > tr.st-tr > td { padding: 0; border-bottom: none; white-space: normal; he
 </div>
 <!-- 流星雨背景层（整页，纯装饰）：只在设置中心挂 .on；无边框、无底色，融进页面背景 -->
 <div class="meteor-bg" id="meteorBg" aria-hidden="true"><canvas id="meteor"></canvas></div>
+<!-- 只看星空：右上角棱形按钮（描边星星；悬停转 90°，点击亮一下再隐去面板） -->
+<button class="sky-btn" id="skyBtn" type="button" data-act="sky-toggle" aria-pressed="false" aria-label="只看星空" title="只看星空">
+  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.4l2.5 5.2 5.7.8-4.1 4 1 5.7-5.1-2.7-5.1 2.7 1-5.7-4.1-4 5.7-.8z"/></svg>
+</button>
+<div class="sky-hint" aria-hidden="true">只看星空 · 点击星星回到设置中心</div>
 <!-- 打印客户联容器 -->
 <div class="print-sheet" id="printSheet" aria-hidden="true"></div>
 <div class="app" id="app">
@@ -1356,11 +1390,35 @@ function meteorStart() {
   MV.raf = requestAnimationFrame(mvFrame);
 }
 function syncMeteor() {
-  const bg = $('#meteorBg');
+  const bg = $('#meteorBg'), btn = $('#skyBtn');
   if (!bg) return;
   const on = S.page === 'settings';
   bg.classList.toggle('on', on);
+  if (btn) {
+    btn.classList.toggle('show', on);
+    // 离开设置页时自动退出「只看星空」，回来是正常设置界面
+    if (!on) toggleSky(false);
+  }
   if (on) meteorStart(); else meteorStop();
+}
+/* 只看星空：点击棱形按钮 → 星星亮一下 → 设置面板淡出，只留流星雨；再点回来 */
+function toggleSky(force) {
+  if (S.page !== 'settings') force = false;
+  const on = force != null ? force : !document.body.classList.contains('sky-mode');
+  document.body.classList.toggle('sky-mode', on);
+  const btn = $('#skyBtn');
+  if (btn) {
+    btn.classList.toggle('on', on);
+    btn.setAttribute('aria-pressed', String(on));
+    if (on) {
+      btn.classList.remove('is-firing');
+      void btn.offsetWidth;                 // 重启动画
+      btn.classList.add('is-firing');
+      setTimeout(() => btn.classList.remove('is-firing'), 700);
+      mvBurst(12, 1400);                    // 进星空时顺手撒一拨流星
+    }
+  }
+  return on;
 }
 
 function applyState() {
@@ -2189,6 +2247,7 @@ const ACT = {
   'enter-back': () => { showEnter(false); showLogin(true); },
   'nc-open': () => showNoCompany(true),
   'nc-back': () => { showNoCompany(false); showLogin(true); },
+  'sky-toggle': () => toggleSky(),
   'lg-fail': () => { lgSet('error', '服务暂时不可用（HTTP 503），已保留你输入的内容。'); lgToast('登录失败：服务暂不可用', 1); },
   logout() { try { history.replaceState(null,'','#'); } catch(e){} location.hash=''; showLogin(true); }
 };
