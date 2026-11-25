@@ -1392,11 +1392,13 @@ function meteorStart() {
 function syncMeteor() {
   const bg = $('#meteorBg'), btn = $('#skyBtn');
   if (!bg) return;
-  const on = S.page === 'settings';
+  // 只在「暗色模式 + 设置中心」出现：亮色下既不要流星雨，也不要星星按钮
+  const dark = document.documentElement.dataset.theme === 'dark';
+  const on = S.page === 'settings' && dark;
   bg.classList.toggle('on', on);
   if (btn) {
     btn.classList.toggle('show', on);
-    // 离开设置页时自动退出「只看星空」，回来是正常设置界面
+    // 离开设置页 / 切到亮色时自动退出「只看星空」
     if (!on) toggleSky(false);
   }
   if (on) meteorStart(); else meteorStop();
