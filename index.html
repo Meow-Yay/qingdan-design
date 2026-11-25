@@ -581,17 +581,20 @@ tbody > tr.st-tr > td { padding: 0; border-bottom: none; white-space: normal; he
 #app { position: relative; z-index: 1; }
 
 /* ===== 只看星空：右上角棱形按钮（描边星星） ===== */
-.sky-btn { position: fixed; right: 26px; top: 78px; z-index: 6; width: 42px; height: 42px; display: none; place-items: center;
-  background: none; border: 0; padding: 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.sky-btn { position: fixed; right: 22px; top: 76px; z-index: 6; width: 29px; height: 29px; display: none; place-items: center;
+  background: none; border: 0; padding: 0; cursor: pointer; opacity: .38;
+  transition: opacity .25s ease; -webkit-tap-highlight-color: transparent; }
 .sky-btn.show { display: grid; }
-.sky-btn::before { content: ""; position: absolute; inset: 0; border-radius: 7px; transform: rotate(45deg);
-  background: rgba(18, 22, 20, .62); border: 1px solid rgba(255, 255, 255, .28);
-  backdrop-filter: blur(6px); transition: border-color .22s, background .22s, box-shadow .22s; }
-.sky-btn:hover::before { border-color: rgba(255, 255, 255, .72); box-shadow: 0 0 0 3px rgba(255, 255, 255, .1); }
-.sky-btn svg { position: relative; width: 19px; height: 19px; transition: transform .4s cubic-bezier(.32, .72, 0, 1), filter .3s; }
-.sky-btn svg path { fill: none; stroke: #fff; stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; }
+.sky-btn::before { content: ""; position: absolute; inset: 0; border-radius: 5px; transform: rotate(45deg);
+  background: rgba(18, 22, 20, .26); border: 1px solid rgba(255, 255, 255, .2);
+  backdrop-filter: blur(4px); transition: border-color .22s, background .22s, box-shadow .22s; }
+.sky-btn:hover { opacity: 1; }
+.sky-btn:hover::before { border-color: rgba(255, 255, 255, .58); box-shadow: 0 0 0 2px rgba(255, 255, 255, .08); }
+.sky-btn svg { position: relative; width: 13px; height: 13px; transition: transform .4s cubic-bezier(.32, .72, 0, 1), filter .3s; }
+.sky-btn svg path { fill: none; stroke: rgba(255, 255, 255, .92); stroke-width: 1.35; stroke-linejoin: round; stroke-linecap: round; }
 .sky-btn:hover svg { transform: rotate(90deg); }
-.sky-btn.on svg { filter: drop-shadow(0 0 5px rgba(255, 255, 255, .85)); }
+.sky-btn.on { opacity: .6; }
+.sky-btn.on svg { filter: drop-shadow(0 0 4px rgba(255, 255, 255, .7)); }
 .sky-btn.is-firing svg { animation: sky-fire .64s cubic-bezier(.32, .72, 0, 1); }
 @keyframes sky-fire {
   0%   { transform: rotate(90deg) scale(1);    filter: none; }
